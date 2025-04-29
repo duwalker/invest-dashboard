@@ -84,7 +84,13 @@ class ChartFactory:
                     y='净值',
                     color='风格'
                 )
+                # 设置每个风格线条的悬停模板，不显示日期
+                for trace in self.fig_style_nav.data:
+                    trace.hovertemplate = '%{fullData.name}: %{y:.4f}<extra></extra>'
+                
                 self.fig_style_nav.update_layout(**self.CHART_LAYOUT, showlegend=False)
+                # 设置风格净值趋势图的交互模式为x轴统一显示
+                self.fig_style_nav.update_layout(hovermode='x unified')
             else:
                 self.fig_style_nav = go.Figure()
                 self.fig_style_nav.update_layout(**self.CHART_LAYOUT)
@@ -109,7 +115,56 @@ class ChartFactory:
                 '总净值': (1 + total_returns).cumprod()
             })
             self.fig_total = px.line(total_nav, x='Date', y='总净值')
+            # 设置总净值的悬停模板，不显示日期
+            for trace in self.fig_total.data:
+                trace.hovertemplate = '总净值: %{y:.4f}<extra></extra>'
+            
             self.fig_total.update_layout(**self.CHART_LAYOUT, showlegend=False)
+            
+            # 添加沪深300基准线到总净值趋势图
+            csi300_data = self.data_processor.get_csi300_data()
+            if not csi300_data.empty:
+                # 首先修改总净值的悬停模板，不显示日期
+                for trace in self.fig_total.data:
+                    trace.hovertemplate = '总净值: %{y:.4f}<extra></extra>'
+                
+                # 添加沪深300，显示日期
+                self.fig_total.add_trace(go.Scatter(
+                    x=csi300_data['Date'],
+                    y=csi300_data['净值'],
+                    name='沪深300',
+                    line=dict(
+                        color='#808080',  # 灰色
+                        width=2,
+                        dash='dash'  # 虚线
+                    ),
+                    mode='lines',
+                    hovertemplate='%{x|%Y-%m-%d}<br>沪深300: %{y:.4f}<extra></extra>'
+                ))
+                # 设置交互模式为x轴统一显示
+                self.fig_total.update_layout(hovermode='x unified')
+            
+            # 设置风格净值趋势图的交互模式为x轴统一显示
+            if style_data and not csi300_data.empty:
+                # 修改所有风格线条的悬停模板，不显示日期
+                for trace in self.fig_style_nav.data:
+                    trace.hovertemplate = '%{fullData.name}: %{y:.4f}<extra></extra>'
+                
+                # 添加沪深300，显示日期
+                self.fig_style_nav.add_trace(go.Scatter(
+                    x=csi300_data['Date'],
+                    y=csi300_data['净值'],
+                    name='沪深300',
+                    line=dict(
+                        color='#808080',  # 灰色
+                        width=2,
+                        dash='dash'  # 虚线
+                    ),
+                    mode='lines',
+                    hovertemplate='%{x|%Y-%m-%d}<br>沪深300: %{y:.4f}<extra></extra>'
+                ))
+                # 设置交互模式为x轴统一显示
+                self.fig_style_nav.update_layout(hovermode='x unified')
             
         except Exception as e:
             print(f"创建图表时出错: {str(e)}")
@@ -264,3 +319,72 @@ class ChartFactory:
         )
         
         return fig
+
+    def create_net_value_trend_chart(self, start_date=None, end_date=None):
+        """创建净值趋势图"""
+        try:
+            # 获取策略数据
+            strategy_data = self.data_processor.get_strategy_data(start_date, end_date)
+            if strategy_data.empty:
+                return None
+            
+            # 获取沪深300数据
+            csi300_data = self.data_processor.get_csi300_data(start_date, end_date)
+            print(f"沪深300数据: {len(csi300_data)} 条记录")
+            
+            # 创建图表
+            fig = go.Figure()
+            
+            # 添加策略净值线
+            for strategy in strategy_data['Strategy'].unique():
+                strategy_df = strategy_data[strategy_data['Strategy'] == strategy]
+                style = self.data_processor.STRATEGY_STYLES.get(strategy, {})
+                fig.add_trace(go.Scatter(
+                    x=strategy_df['Date'],
+                    y=strategy_df['NetValue'],
+                    name=style.get('alias', strategy),
+                    line=dict(
+                        color=style.get('color', '#000000'),
+                        width=style.get('line_width', 2),
+                        dash=style.get('line_style', 'solid')
+                    ),
+                    mode='lines'
+                ))
+            
+            # 添加沪深300指数线
+            if not csi300_data.empty:
+                print("添加沪深300基准线")
+                fig.add_trace(go.Scatter(
+                    x=csi300_data['Date'],
+                    y=csi300_data['净值'],
+                    name='沪深300',
+                    line=dict(
+                        color='#808080',  # 灰色
+                        width=2,
+                        dash='dash'
+                    ),
+                    mode='lines'
+                ))
+            
+            # 设置图表布局
+            fig.update_layout(
+                title='净值趋势',
+                xaxis_title='日期',
+                yaxis_title='净值',
+                hovermode='x unified',
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                ),
+                margin=dict(l=50, r=50, t=50, b=50),
+                height=400
+            )
+            
+            return fig
+            
+        except Exception as e:
+            print(f"创建净值趋势图时出错: {str(e)}")
+            return None

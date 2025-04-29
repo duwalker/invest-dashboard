@@ -5,6 +5,7 @@ from functools import lru_cache
 from .config import STRATEGY_STYLES
 import plotly.graph_objects as go
 import plotly.express as px
+import json
 
 class DataProcessor:
     def __init__(self, file_path):
@@ -16,6 +17,7 @@ class DataProcessor:
             self.daily_profit_loss = None  # 新增 daily_profit_loss 属性
             self._calculate_daily_metrics()
             self.update_drawdown_analysis()  # 确保在初始化时调用该方法
+            self.csi300_data = self._load_csi300_data()  # 加载沪深300数据
         except Exception as e:
             print(f"初始化数据处理器时出错: {str(e)}")
             self._init_empty_metrics()
@@ -386,7 +388,6 @@ class DataProcessor:
         all_styles = set()
         current_date = pd.Timestamp.now()  # 使用当前日期
         with open('cubevalue.txt', 'r') as f:
-            import json
             cubevalue = json.load(f)
             
         # 首次遍历：收集所有风格，包括"三年以内"
@@ -463,3 +464,90 @@ class DataProcessor:
         # 转换为DataFrame并按总市值降序排序
         df = pd.DataFrame(style_data)
         return df.sort_values('总市值', ascending=False)
+
+    def _load_csi300_data(self) -> pd.DataFrame:
+        """加载沪深300指数数据"""
+        try:
+            # 读取cubevalue.txt文件
+            with open('cubevalue.txt', 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 直接获取CSI300的nav_series数据
+            csi300_data = data.get('CSI300', {}).get('nav_series', {})
+            
+            if not csi300_data:
+                print("未找到沪深300指数数据")
+                return pd.DataFrame()
+            
+            # 转换为DataFrame
+            csi300_df = pd.DataFrame({
+                'Date': pd.to_datetime(list(csi300_data.keys())),
+                '净值': list(csi300_data.values())
+            })
+            
+            # 按日期排序
+            csi300_df = csi300_df.sort_values('Date')
+            
+            # 仅保留与策略数据相同时间范围内的数据
+            if not self.df.empty:
+                first_strategy_date = self.df['Date'].min()
+                csi300_df = csi300_df[csi300_df['Date'] >= first_strategy_date]
+            
+            # 计算相对净值（确保第一个值为1）
+            if not csi300_df.empty:
+                first_value = csi300_df['净值'].iloc[0]
+                csi300_df['净值'] = csi300_df['净值'] / first_value
+                print(f"沪深300第一天净值: {csi300_df['净值'].iloc[0]}")
+            
+            print(f"成功加载沪深300数据，共 {len(csi300_df)} 条记录")
+            print(f"日期范围: {csi300_df['Date'].min()} 到 {csi300_df['Date'].max()}")
+            
+            return csi300_df
+            
+        except Exception as e:
+            print(f"加载沪深300数据时出错: {str(e)}")
+            return pd.DataFrame()
+    
+    def get_csi300_data(self, start_date=None, end_date=None) -> pd.DataFrame:
+        """获取指定时间范围内的沪深300数据"""
+        if self.csi300_data.empty:
+            return pd.DataFrame()
+        
+        if start_date is None:
+            start_date = self.df['Date'].min()
+        if end_date is None:
+            end_date = self.df['Date'].max()
+        
+        mask = (self.csi300_data['Date'] >= start_date) & (self.csi300_data['Date'] <= end_date)
+        return self.csi300_data[mask].copy()
+
+    def get_strategy_data(self, start_date=None, end_date=None) -> pd.DataFrame:
+        """获取指定时间范围内的策略数据"""
+        if self.df.empty:
+            return pd.DataFrame()
+        
+        # 设置默认日期范围
+        if start_date is None:
+            start_date = self.df['Date'].min()
+        if end_date is None:
+            end_date = self.df['Date'].max()
+        
+        # 筛选日期范围内的数据
+        mask = (self.df['Date'] >= start_date) & (self.df['Date'] <= end_date)
+        filtered_data = self.df[mask].copy()
+        
+        # 将策略ID映射为别名
+        filtered_data['Strategy_Alias'] = filtered_data['Strategy'].map(self.get_strategy_alias)
+        
+        # 重命名列以匹配create_net_value_trend_chart方法中的引用
+        filtered_data = filtered_data.rename(columns={
+            '净值': 'NetValue'
+        })
+        
+        print(f"获取策略数据: {len(filtered_data)} 条记录")
+        if not filtered_data.empty:
+            print(f"日期范围: {filtered_data['Date'].min()} 到 {filtered_data['Date'].max()}")
+            print(f"策略数量: {filtered_data['Strategy'].nunique()}")
+            print(f"数据列: {filtered_data.columns.tolist()}")
+        
+        return filtered_data
