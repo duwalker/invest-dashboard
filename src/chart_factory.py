@@ -112,26 +112,36 @@ class ChartFactory:
             )
             total_nav = pd.DataFrame({
                 'Date': total_returns.index,
-                '总净值': (1 + total_returns).cumprod()
-            })
-            self.fig_total = px.line(total_nav, x='Date', y='总净值')
-            # 设置总净值的悬停模板，不显示日期
+                '总收益率': (1 + total_returns).cumprod() - 1  # 转换为收益率格式（净值-1）
+            }).reset_index(drop=True)  # 重置索引，确保Date只作为列存在
+            self.fig_total = px.line(total_nav, x='Date', y='总收益率')
+            # 设置总收益率的悬停模板，不显示日期
             for trace in self.fig_total.data:
-                trace.hovertemplate = '总净值: %{y:.4f}<extra></extra>'
+                trace.hovertemplate = '总收益率: %{y:.2%}<extra></extra>'  # 更新为百分比格式
             
-            self.fig_total.update_layout(**self.CHART_LAYOUT, showlegend=False)
+            self.fig_total.update_layout(
+                **self.CHART_LAYOUT,
+                showlegend=True,  # 显示图例
+                legend=dict(
+                    orientation="h",  # 水平布局
+                    yanchor="bottom",
+                    y=1.02,  # 将图例放在图表上方
+                    xanchor="right",
+                    x=1
+                )
+            )
             
             # 添加沪深300基准线到总净值趋势图
             csi300_data = self.data_processor.get_csi300_data()
             if not csi300_data.empty:
-                # 首先修改总净值的悬停模板，不显示日期
-                for trace in self.fig_total.data:
-                    trace.hovertemplate = '总净值: %{y:.4f}<extra></extra>'
+                # 计算沪深300收益率（净值-1）
+                csi300_data = csi300_data.copy()
+                csi300_data['收益率'] = csi300_data['净值'] - 1
                 
-                # 添加沪深300，显示日期
+                # 添加沪深300收益率线，显示日期
                 self.fig_total.add_trace(go.Scatter(
                     x=csi300_data['Date'],
-                    y=csi300_data['净值'],
+                    y=csi300_data['收益率'],
                     name='沪深300',
                     line=dict(
                         color='#808080',  # 灰色
@@ -139,8 +149,36 @@ class ChartFactory:
                         dash='dash'  # 虚线
                     ),
                     mode='lines',
-                    hovertemplate='%{x|%Y-%m-%d}<br>沪深300: %{y:.4f}<extra></extra>'
+                    hovertemplate='%{x|%Y-%m-%d}<br>沪深300: %{y:.2%}<extra></extra>'  # 更新为百分比格式
                 ))
+                
+                # 添加超额收益线 - 计算总收益率相对于沪深300的超额收益
+                # 首先确保日期匹配
+                common_dates = set(total_nav['Date']).intersection(set(csi300_data['Date']))
+                if common_dates:
+                    # 筛选共同日期的数据并复制出新的DataFrame，避免修改原始数据
+                    filtered_total = total_nav[total_nav['Date'].isin(common_dates)].copy().sort_values('Date')
+                    filtered_csi300 = csi300_data[csi300_data['Date'].isin(common_dates)].copy().sort_values('Date')
+                    
+                    # 创建包含超额收益的数据框，确保Date不是索引
+                    excess_return_df = pd.DataFrame({
+                        'Date': filtered_total['Date'].values,
+                        '超额收益': filtered_total['总收益率'].values - filtered_csi300['收益率'].values
+                    })
+                    
+                    # 添加超额收益线
+                    self.fig_total.add_trace(go.Scatter(
+                        x=excess_return_df['Date'],
+                        y=excess_return_df['超额收益'],
+                        name='超额收益',
+                        line=dict(
+                            color='#00ff00',  # 绿色
+                            width=2
+                        ),
+                        mode='lines',
+                        hovertemplate='%{x|%Y-%m-%d}<br>超额收益: %{y:.2%}<extra></extra>'  # 更新为百分比格式
+                    ))
+                
                 # 设置交互模式为x轴统一显示
                 self.fig_total.update_layout(hovermode='x unified')
             

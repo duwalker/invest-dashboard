@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import dash
 from portfolio import get_stock_prices  # 添加这行
+import plotly.express as px
 
 # 初始化应用
 app = Dash(
@@ -243,6 +244,7 @@ app.layout = html.Div([
                     label='总净值趋势',
                     children=[
                         dcc.Graph(
+                            id='total-nav-chart',  # 添加ID
                             figure=chart_factory.fig_total, 
                             config={'displayModeBar': False},
                             style={
@@ -1462,6 +1464,109 @@ def get_stock_name(code):
     except Exception as e:
         print(f"Error reading holdings.tsv: {e}")
     return code
+
+# 修改回调函数的Output参数
+@app.callback(
+    Output('total-nav-chart', 'figure'),
+    [Input('date-picker', 'date')]
+)
+def update_total_chart(selected_date):
+    if selected_date:
+        selected_date = pd.to_datetime(selected_date)
+        
+        # 筛选选定日期之前的数据
+        historical_data = data_processor.df[data_processor.df['Date'] <= selected_date]
+        if historical_data.empty:
+            return chart_factory.fig_total
+        
+        # 计算每日总收益率
+        daily_returns = historical_data.groupby('Date', group_keys=False).apply(
+            lambda x: (x['MarketValue_close'] * x['收益率']).sum() / x['MarketValue_close'].sum(),
+            include_groups=False
+        )
+        
+        # 计算总收益率（净值-1），确保Date只作为列而非索引
+        total_nav = pd.DataFrame({
+            'Date': daily_returns.index,
+            '总收益率': (1 + daily_returns).cumprod() - 1  # 转换为收益率格式（净值-1）
+        }).reset_index(drop=True)  # 重置索引，确保Date只是列而非索引
+        
+        # 创建总收益率趋势图
+        fig_total = px.line(total_nav, x='Date', y='总收益率')
+        
+        # 设置总收益率的悬停模板
+        for trace in fig_total.data:
+            trace.hovertemplate = '总收益率: %{y:.2%}<extra></extra>'  # 百分比格式
+        
+        # 更新布局
+        fig_total.update_layout(
+            **chart_factory.CHART_LAYOUT,
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            xaxis_title='',
+            yaxis_title=''
+        )
+        
+        # 获取沪深300数据
+        csi300_data = data_processor.get_csi300_data(end_date=selected_date)
+        
+        if not csi300_data.empty:
+            # 计算沪深300收益率（净值-1）
+            csi300_data = csi300_data.copy()
+            csi300_data['收益率'] = csi300_data['净值'] - 1
+            
+            # 添加沪深300收益率线
+            fig_total.add_trace(go.Scatter(
+                x=csi300_data['Date'],
+                y=csi300_data['收益率'],
+                name='沪深300',
+                line=dict(
+                    color='#808080',  # 灰色
+                    width=2,
+                    dash='dash'  # 虚线
+                ),
+                mode='lines',
+                hovertemplate='%{x|%Y-%m-%d}<br>沪深300: %{y:.2%}<extra></extra>'  # 百分比格式
+            ))
+            
+            # 添加超额收益线
+            common_dates = set(total_nav['Date']).intersection(set(csi300_data['Date']))
+            if common_dates:
+                # 筛选共同日期的数据，并创建副本避免修改原始数据
+                filtered_total = total_nav[total_nav['Date'].isin(common_dates)].copy().sort_values('Date')
+                filtered_csi300 = csi300_data[csi300_data['Date'].isin(common_dates)].copy().sort_values('Date')
+                
+                # 创建包含超额收益的数据框，使用values避免索引问题
+                excess_return_df = pd.DataFrame({
+                    'Date': filtered_total['Date'].values,
+                    '超额收益': filtered_total['总收益率'].values - filtered_csi300['收益率'].values
+                })
+                
+                # 添加超额收益线
+                fig_total.add_trace(go.Scatter(
+                    x=excess_return_df['Date'],
+                    y=excess_return_df['超额收益'],
+                    name='超额收益',
+                    line=dict(
+                        color='#00ff00',  # 绿色
+                        width=2
+                    ),
+                    mode='lines',
+                    hovertemplate='%{x|%Y-%m-%d}<br>超额收益: %{y:.2%}<extra></extra>'  # 百分比格式
+                ))
+            
+            # 设置交互模式为x轴统一显示
+            fig_total.update_layout(hovermode='x unified')
+        
+        return fig_total
+    
+    return chart_factory.fig_total
 
 if __name__ == '__main__':
     app.run_server(debug=True)
