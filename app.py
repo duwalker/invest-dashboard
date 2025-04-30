@@ -1123,7 +1123,7 @@ def update_holdings_table(selected_date):
                             holdings[code] = quantity
 
     # 获取所有股票的价格
-    with open(r'c:\qmt_record\cookies.txt', 'r') as f:
+    with open(r'cookies.txt', 'r') as f:
         cookies = json.load(f)
         cookie = cookies['xueqiu']  # 获取雪球的cookie
     
@@ -1431,7 +1431,7 @@ def show_strategy_holdings(active_cell, close_clicks, derived_virtual_data):
     # 获取所有股票的实时价格和涨跌幅
     if holdings_data:
         try:
-            with open(r'c:\qmt_record\cookies.txt', 'r') as f:
+            with open(r'cookies.txt', 'r') as f:
                 cookies = json.load(f)
                 cookie = cookies['xueqiu']  # 获取雪球的cookie
             
