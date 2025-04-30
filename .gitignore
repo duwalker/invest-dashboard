@@ -7,3 +7,4 @@ holdings/
 .comate/
 __pycache__/
 .cursor/
+src/__pycache__/
