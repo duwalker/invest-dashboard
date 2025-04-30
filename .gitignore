@@ -4,3 +4,6 @@ cubevalue.txt
 holdings.tsv
 portfolio_market_value.csv
 holdings/
+.comate/
+__pycache__/
+.cursor/
