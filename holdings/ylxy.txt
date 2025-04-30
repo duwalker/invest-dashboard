@@ -1,1 +1,1 @@
-{"ylxy": {"holding": {}, "cash": 65877.63}}
+{"ylxy": {"holding": {}, "cash": 6.63}}
